@@ -1,0 +1,162 @@
+---
+title: 'Lab #9'
+author: "Ifeoma Okonye"
+date: "2024-04-02"
+output: html_document
+---
+
+## Introduction {.tabset}
+
+
+
+```{r}
+library(pacman)
+p_load(raster, sf, tidyverse)
+
+
+riley <- raster("CDL_2019_20161.tif")
+elev <- raster("elevation.tif")
+
+
+plot(riley)
+
+riley[riley == 0] <- NA
+
+plot(riley)
+
+crs(riley)
+crs(elev)
+
+crs <- '+proj=utm +zone=11 +ellps=GRS80 +datum=NAD83 +units=m +no_defs'
+
+riley <- projectRaster(riley, crs = crs, method = "ngb") 
+
+elev <- projectRaster(elev, crs = crs, method = "bilinear")
+
+plot(elev)
+plot(riley)
+
+```
+
+
+### Question 1
+
+Transform your raster/s so that they have a consistent grid structure and aggregate them to a grid cell resolution of 1km x 1km. Plot the resulting raster layers.
+
+```{r}
+
+# for croptype 2019 riley data
+new_ras_1km <- raster(crs = crs,
+                  ext = extent(riley),
+                  resolution = c(1000, 1000))
+
+
+riley_1km <- resample(riley, new_ras_1km,
+                                  method = "ngb")
+
+plot(riley_1km, main = "2019 Riley Croptype Resampled to 1km")
+
+
+
+# for elevation data
+
+elevras_1km <- raster(crs = crs,
+                  ext = extent(elev),
+                  resolution = c(1000, 1000))
+
+
+elev_1km <- resample(elev, elevras_1km,
+                                  method = "bilinear")
+
+plot(elev_1km, main = "Riley Elevation Resampled to 1km")
+
+
+```
+
+
+
+
+### Question 2
+
+Run a focal statistics process to “smooth” the elevation values and run a focal statistics process to determine local diversity in landuse. Plot both rasters.
+
+```{r}
+
+# focal statistics on elevation data
+
+elev_smooth <- focal(elev_1km, w = matrix(1 , ncol = 3, nrow = 3), mean)
+plot(elev_smooth)
+
+
+# focal statistics on landuse data
+
+riley_smooth <- focal(riley_1km, w = matrix(1, ncol = 3, nrow = 3), fun = modal)
+plot(riley_smooth)  
+
+```
+
+
+### Question 3
+
+Using your smoothed elevation raster, calculate and report the average slope and elevation for each land use type in the raster created in step 1. Where are the values the highest/lowest? Is there anything questionable about this analysis?
+
+
+```{r}
+#fix extent
+
+elev_smooth_rc <- crop(elev_smooth, extent(riley_1km))
+
+
+#check resolution
+res(elev_smooth)
+res(riley_1km)
+
+
+# zonal op
+riley_1km <- ratify(riley_1km)
+elev_smooth_rc <- ratify(elev_smooth_rc)
+elev_crop <- zonal(elev_smooth_rc, riley_1km, fun = mean, na.rm=T) %>% as.data.frame()
+
+
+#calculating slope (terrain)
+
+slope <- terrain(elev_smooth, opt = "slope", units = "degrees") #you culd pull out the weighting operation used by arcgis to apply here.
+
+plot(slope)
+hist(slope)
+
+```
+
+
+### Question 4
+
+Create zones of elevation by quantiles and calculate and report the average value of landuse diversity (as calculated in 3) in each zone. Is there any apparent trend?
+
+
+```{r}
+
+```
+
+
+
+### Question 5
+
+Create a raster displaying the distance from developed areas.
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+

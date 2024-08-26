@@ -1,0 +1,218 @@
+---
+title: 'Lab #9'
+author: "Ifeoma Okonye"
+date: "2024-04-02"
+output: html_document
+---
+
+## Introduction {.tabset}
+
+For this lab, I used the raster, sf and tidyverse packages. The datalayers I made use of are the 2019 Cropland Data Layer (CDL) for Riley county and elevation data. I did some data tidying by converting the 0 values in the landuse data to NA and then I converted both dataset (CDL and elevation) to the right coordinate reference system.
+
+```{r message=FALSE, warning=FALSE}
+library(pacman)
+p_load(raster, sf, tidyverse)
+
+
+riley <- raster("CDL_2019_20161.tif")
+elev <- raster("elevation.tif")
+
+
+plot(riley)
+
+riley[riley == 0] <- NA
+
+plot(riley)
+
+crs(riley)
+crs(elev)
+
+crs <- '+proj=utm +zone=11 +ellps=GRS80 +datum=NAD83 +units=m +no_defs'
+
+riley <- projectRaster(riley, crs = crs, method = "ngb") 
+
+elev <- projectRaster(elev, crs = crs, method = "bilinear")
+
+plot(elev)
+plot(riley)
+
+```
+
+
+### Question 1
+
+I transformed both raster so that they have a consistent grid structure and aggregated them to a grid cell resolution of 1km x 1km. I then plotted the resampled raster layers.
+
+```{r message=FALSE, warning=FALSE}
+
+# for croptype 2019 riley data
+new_ras_1km <- raster(crs = crs,
+                  ext = extent(riley),
+                  resolution = c(1000, 1000))
+
+
+riley_1km <- resample(riley, new_ras_1km,
+                                  method = "ngb")
+
+plot(riley_1km, main = "2019 Riley Landuse Resampled to 1km")
+
+
+
+# for elevation data
+
+elevras_1km <- raster(crs = crs,
+                  ext = extent(riley),
+                  resolution = c(1000, 1000))
+
+
+elev_1km <- resample(elev, elevras_1km,
+                                  method = "bilinear")
+
+plot(elev_1km, main = "Riley Elevation Resampled to 1km")
+
+
+```
+
+
+
+
+### Question 2
+
+I ran the smooth focal statistics to the elevation values and ran the same focal statistics to the landuse dataset to determine local diversity in the data. I plotted the resulting rasters.
+
+```{r message=FALSE, warning=FALSE}
+
+# focal statistics on elevation data
+
+elev_smooth <- focal(elev_1km, 
+                     w = matrix(1 , ncol = 3, nrow = 3), 
+                     fun = mean, na.rm = T)
+plot(elev_smooth)
+
+
+# focal statistics on landuse data
+
+riley_smooth <- focal(riley_1km, 
+                      w = matrix(1, ncol = 3, nrow = 3), 
+                      fun = modal, na.rm = T)
+plot(riley_smooth)  
+
+```
+
+
+### Question 3
+
+Using the smoothed elevation raster, I calculated and reported the average slope and elevation for each land use type in the raster. The landuse type at the highest elevation was ---- (---) and the landuse at the lowest elevation was ---- (---). The values with the highest slope was ---- (---) and that with the lowest slope was ---- (---).
+
+Is there anything questionable about this analysis?
+
+
+```{r message=FALSE, warning=FALSE}
+#fix extent
+
+elev_smooth_rc <- crop(elev_smooth, extent(riley_1km))
+plot(elev_smooth_rc)
+
+#check resolution
+res(elev_smooth)
+res(riley_1km)
+
+
+# zonal op
+elev_crop <- zonal(elev_smooth_rc, riley_1km, fun = mean, na.rm=T) %>% as.data.frame()
+round(elev_crop)
+
+
+
+#calculating slope (terrain)
+slope <- terrain(elev_smooth_rc, opt = "slope", units = "degrees") 
+
+plot(slope)
+hist(slope)
+
+
+cellStats(slope, stat = min)
+cellStats(slope, stat = max)
+
+#reclassifying slopes into 4 different zones
+zones <- reclassify(slope, c(0.0002, 0.0075, 1,      # From 0.0002 to 0.0075 -> Zone 1
+                         0.0075, 0.015, 2,  # From 0.0075 to 0.015 -> Zone 2
+                         0.015, 0.0225, 3,  # From 0.015 to 0.0225 -> Zone 3
+                         0.0225, 0.03, 4),  # From 0.0225 to 0.03 -> Zone 4
+                       byrow = TRUE, ncol = 3)
+
+zones <- ratify(zones)
+plot(zones)
+
+#getting average slope for each landuse type
+
+landuse_slope <- zonal(riley_1km, zones, fun = mean) 
+landuse_slope
+
+```
+
+
+### Question 4
+
+I created zones of elevation by quantiles and calculated the average value of landuse diversity in each zone. There was a trend of ----------
+
+Is there any apparent trend?
+
+
+```{r message=FALSE, warning=FALSE}
+
+LU_Diversity.rc <- focal(riley_1km, 
+                      w = matrix(1, ncol = 3, nrow = 3), 
+                      fun = modal, na.rm = T)
+
+#Creating the elevation zones by quantiles
+elev_quant <- quantile(values(elev_smooth),
+                       probs = c(0, 0.25, 0.50, 0.75, 1.0), 
+                       na.rm = T)
+elev_zones <- raster(elev_smooth)
+values(elev_zones) <- cut(values(elev_smooth),
+                          breaks = elev_quant, include.lowest = T)
+
+avg_diversity <- zonal(LU_Diversity.rc,
+                       elev_zones, fun = mean)
+avg_diversity
+plot(elev_zones, main = "Elevation Zones in Riley County")
+
+```
+
+
+
+### Question 5
+
+I finally created a raster displaying the distance from developed areas with the closest distance displayed in white and the farthest shown in green. The units are in meters.
+
+```{r message=FALSE, warning=FALSE}
+unique(riley_1km)
+
+#reclassify all dev areas to 121
+riley_1km <- reclassify(riley_1km, c(120,125, 121))
+unique(riley_1km)
+
+##creating developed area points from the raster
+dev_area_pts <- rasterToPoints(riley_1km, fun = function(x) {x==121}, spatial = T) 
+plot(dev_area_pts)
+
+## creating raster showing distance from developed areas
+dev_area_dist <- distanceFromPoints(riley_1km, dev_area_pts) 
+plot(dev_area_dist)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
